@@ -1,21 +1,23 @@
-# config.py - 项目全局超参数配置
+# config.py - project-wide hyperparameters
+import os
+
 import torch
 
-# 设备配置（自动检测GPU/CPU）
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-# 数据与模型超参数
-batch_size = 32          # 批次大小
-block_size = 64          # 序列长度（上下文窗口）
-vocab_size = None        # 由数据集自动赋值，无需修改
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
-# Transformer模型结构
-n_embd = 128             # 词嵌入维度
-n_head = 4               # 注意力头数
-n_layer = 3              # Encoder堆叠层数
-dropout = 0.1            # Dropout正则化率
+batch_size = int(os.getenv("BATCH_SIZE", 32))
+block_size = int(os.getenv("BLOCK_SIZE", 64))
+vocab_size = None
 
-# 训练超参数
-learning_rate = 1e-3     # 学习率
-max_iters = 1000         # 最大训练迭代次数
-eval_interval = 100      # 每N步评估一次训练/验证集
+n_embd = int(os.getenv("N_EMBD", 128))
+n_head = int(os.getenv("N_HEAD", 4))
+n_layer = int(os.getenv("N_LAYER", 3))
+dropout = float(os.getenv("DROPOUT", 0.1))
+
+learning_rate = float(os.getenv("LEARNING_RATE", 1e-3))
+max_iters = int(os.getenv("MAX_ITERS", 1000))
+eval_interval = int(os.getenv("EVAL_INTERVAL", 100))
+eval_iters = int(os.getenv("EVAL_ITERS", 20))
+
+seed = int(os.getenv("SEED", 1337))
