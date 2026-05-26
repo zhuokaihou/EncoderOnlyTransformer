@@ -113,7 +113,7 @@ pytest -q
 
 ## 已修复的问题
 
-原始项目缺少运行说明和依赖文件，并且训练/生成入口文件名存在拼写问题。当前版本补齐了：
+原始项目缺少运行说明和依赖文件。当前版本补齐了：
 
 - `requirements.txt`
 - `train.py`
@@ -121,6 +121,5 @@ pytest -q
 - `models/__init__.py`
 - `utils/__init__.py`
 - `tests/test_smoke.py`
-- 完整 README
 
-同时将训练脚本改为无界面绘图后端，避免在服务器或 Codex 环境中因为 `plt.show()` 阻塞。
+同时将训练脚本改为无界面绘图后端，避免在服务器环境中因为 `plt.show()` 阻塞。
