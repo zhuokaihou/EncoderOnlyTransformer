@@ -98,6 +98,8 @@ class EncoderBlock(nn.Module):
 
 
 class EncoderOnlyTransformer(nn.Module):
+    """Causal self-attention language model built from encoder-style blocks."""
+
     def __init__(self, vocab_size):
         super().__init__()
         self.token_embedding = nn.Embedding(vocab_size, config.n_embd)
@@ -126,17 +128,55 @@ class EncoderOnlyTransformer(nn.Module):
         loss = None
         if targets is not None:
             b, t, c = logits.shape
-            loss = F.cross_entropy(logits.view(b * t, c), targets.view(b * t))
+            loss = F.cross_entropy(logits.reshape(b * t, c), targets.reshape(b * t))
         return logits, loss
 
+    @staticmethod
+    def _filter_logits(logits, top_k=None, top_p=None):
+        if top_k is not None:
+            if top_k <= 0:
+                raise ValueError("top_k must be positive")
+            values, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+            logits = logits.masked_fill(logits < values[:, [-1]], float("-inf"))
+
+        if top_p is not None:
+            if not 0 < top_p <= 1:
+                raise ValueError("top_p must be in the interval (0, 1]")
+            if top_p < 1:
+                sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+                cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
+                sorted_indices_to_remove = cumulative_probs > top_p
+                sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[
+                    ..., :-1
+                ].clone()
+                sorted_indices_to_remove[..., 0] = False
+
+                indices_to_remove = torch.zeros_like(logits, dtype=torch.bool)
+                indices_to_remove.scatter_(
+                    dim=-1, index=sorted_indices, src=sorted_indices_to_remove
+                )
+                logits = logits.masked_fill(indices_to_remove, float("-inf"))
+
+        return logits
+
     @torch.no_grad()
-    def generate(self, idx, max_new_tokens, temperature=1.0):
+    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None, top_p=None):
+        if max_new_tokens < 0:
+            raise ValueError("max_new_tokens must be non-negative")
+        if temperature <= 0:
+            raise ValueError("temperature must be positive")
+
+        was_training = self.training
         self.eval()
-        for _ in range(max_new_tokens):
-            idx_cond = idx[:, -config.block_size :]
-            logits, _ = self(idx_cond)
-            logits = logits[:, -1, :] / temperature
-            probs = F.softmax(logits, dim=-1)
-            idx_next = torch.multinomial(probs, num_samples=1)
-            idx = torch.cat((idx, idx_next), dim=1)
+        try:
+            for _ in range(max_new_tokens):
+                idx_cond = idx[:, -config.block_size :]
+                logits, _ = self(idx_cond)
+                logits = logits[:, -1, :] / temperature
+                logits = self._filter_logits(logits, top_k=top_k, top_p=top_p)
+                probs = F.softmax(logits, dim=-1)
+                idx_next = torch.multinomial(probs, num_samples=1)
+                idx = torch.cat((idx, idx_next), dim=1)
+        finally:
+            self.train(was_training)
         return idx

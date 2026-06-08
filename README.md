@@ -1,38 +1,44 @@
 # EncoderOnlyTransformer
 
-课程期末项目：使用 PyTorch 从零实现一个 Encoder-only Transformer，并在字符级语言建模任务上训练、评估和生成文本。
+课程期末项目：使用 PyTorch 从零实现一个字符级 Transformer 语言模型，并完成训练、评估、保存 checkpoint 和文本生成。
 
-## 项目目标
+## 项目定位
 
-本项目实现了一个只由 Transformer Encoder block 堆叠而成的自回归字符级语言模型。虽然结构名称是 Encoder-only，但为了完成 next-token prediction，注意力层使用了 causal mask，保证当前位置只能看到当前位置及之前的 token。
+当前模型使用 encoder-style 的 Pre-Norm block、残差连接、前馈网络和多头自注意力，但为了完成 next-token prediction，注意力层使用 causal mask，保证当前位置只能看到当前位置及之前的 token。
 
-模型训练目标是最小化下一个字符预测的交叉熵损失，并使用 Perplexity 作为辅助评估指标。
+因此，这个项目更准确地说是一个 **causal character-level Transformer language model**。仓库名保留 `EncoderOnlyTransformer`，模型说明中明确标注了 causal 语言建模设定，避免和标准双向 Encoder-only 模型混淆。
+
+训练目标是最小化下一个字符预测的交叉熵损失，并使用 Perplexity 作为辅助评估指标。
 
 ## 当前状态
 
-- 实现字符级数据读取、编码、解码和 batch 采样
-- 实现 sinusoidal positional encoding
-- 实现 masked multi-head self-attention
-- 实现 feed-forward network、LayerNorm、残差连接和 Encoder block
-- 实现训练脚本、生成脚本、模型保存和曲线保存
-- 提供最小 smoke test，验证数据、前向传播、loss 和生成流程能跑通
+- 字符级数据读取、编码、解码和 batch 采样
+- Sinusoidal positional encoding
+- Causal masked multi-head self-attention
+- Feed-forward network、LayerNorm、残差连接和 Transformer block
+- 参数化训练脚本、生成脚本、模型保存和曲线保存
+- 完整 checkpoint：模型参数、优化器状态、模型配置、词表、训练历史
+- smoke test、采样参数校验、causal mask 行为测试
+- GitHub Actions 自动测试和 1-step smoke training
 
 ## 项目结构
 
 ```text
 .
-├── config.py                 # 全局超参数配置
-├── data/input.txt            # 默认小型训练语料
-├── generate.py               # 文本生成入口
+├── .github/workflows/tests.yml  # GitHub Actions 测试流程
+├── config.py                    # 环境变量默认配置
+├── data/input.txt               # 默认小型训练语料
+├── generate.py                  # 文本生成入口
 ├── models/
 │   ├── __init__.py
-│   └── transformer.py        # Encoder-only Transformer 模型
-├── train.py                  # 训练入口
-├── utils/
-│   ├── __init__.py
-│   └── dataset.py            # 数据加载、编码、batch 采样
-├── tests/test_smoke.py       # 最小可运行测试
-└── requirements.txt
+│   └── transformer.py           # Transformer 语言模型
+├── pyproject.toml               # 项目和测试/格式配置
+├── requirements.txt
+├── tests/test_smoke.py
+├── train.py                     # 训练入口
+└── utils/
+    ├── __init__.py
+    └── dataset.py               # 数据加载、编码、batch 采样
 ```
 
 ## 环境安装
@@ -40,15 +46,10 @@
 建议使用 Python 3.10 或更高版本。
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-如需运行测试，还需要安装 pytest：
-
-```bash
-pip install pytest
+python3 -m pip install --upgrade pip
+python3 -m pip install -r requirements.txt
 ```
 
 ## 训练模型
@@ -56,19 +57,40 @@ pip install pytest
 默认配置适合快速验证流程：
 
 ```bash
-python train.py
+python3 train.py
 ```
 
 训练完成后会在 `outputs/` 下生成：
 
-- `model.pt`：训练后的模型参数
+- `model.pt`：最终 checkpoint
+- `best_model.pt`：验证集 loss 最优 checkpoint
 - `loss_ppl_curve.png`：训练集/验证集 loss 和 PPL 曲线
 - `generated_text.txt`：训练结束后的文本生成样例
 
-可以通过环境变量快速覆盖配置，例如只训练 20 步：
+可以通过命令行参数覆盖配置，例如只训练 20 步：
 
 ```bash
-MAX_ITERS=20 EVAL_INTERVAL=5 EVAL_ITERS=2 python train.py
+python3 train.py --max-iters 20 --eval-interval 5 --eval-iters 2
+```
+
+也可以继续使用环境变量：
+
+```bash
+MAX_ITERS=20 EVAL_INTERVAL=5 EVAL_ITERS=2 python3 train.py
+```
+
+常用参数：
+
+```bash
+python3 train.py \
+  --data-path data/input.txt \
+  --batch-size 32 \
+  --block-size 64 \
+  --n-embd 128 \
+  --n-head 4 \
+  --n-layer 3 \
+  --learning-rate 0.001 \
+  --grad-clip 1.0
 ```
 
 ## 生成文本
@@ -76,7 +98,7 @@ MAX_ITERS=20 EVAL_INTERVAL=5 EVAL_ITERS=2 python train.py
 先训练得到 `outputs/model.pt`，然后运行：
 
 ```bash
-python generate.py
+python3 generate.py
 ```
 
 生成结果会保存到：
@@ -85,7 +107,18 @@ python generate.py
 outputs/generated_result.txt
 ```
 
-如果没有训练好的 `outputs/model.pt`，脚本也能运行，但会使用随机初始化模型，生成结果没有语言质量。
+可以指定 prompt 和采样参数：
+
+```bash
+python3 generate.py \
+  --prompt "the " \
+  --max-new-tokens 300 \
+  --temperature 0.8 \
+  --top-k 20 \
+  --top-p 0.9
+```
+
+如果 checkpoint 中包含词表和模型配置，生成脚本会直接从 checkpoint 恢复；如果只加载旧版 `state_dict`，则会回退到从 `data/input.txt` 重建词表。
 
 ## 测试
 
@@ -99,27 +132,12 @@ pytest -q
 - batch 的形状符合配置
 - 模型 forward 能输出 logits 和 loss
 - generate 方法能生成指定长度的新 token
+- causal mask 不会让当前位置读取未来 token
+- 无效 split、未知字符和非法采样参数会报错
 
-## 模型说明
+## 维护说明
 
-模型的主要组件包括：
-
-1. Token Embedding：把字符 id 映射到向量空间
-2. Positional Encoding：使用正弦/余弦位置编码注入顺序信息
-3. Masked Multi-Head Self-Attention：多头自注意力，并用下三角 mask 防止看到未来 token
-4. Feed-Forward Network：两层 MLP 提升非线性表达能力
-5. Residual Connection + LayerNorm：稳定训练
-6. Linear Head：输出每个位置对下一个字符的 logits
-
-## 已修复的问题
-
-原始项目缺少运行说明和依赖文件。当前版本补齐了：
-
-- `requirements.txt`
-- `train.py`
-- `generate.py`
-- `models/__init__.py`
-- `utils/__init__.py`
-- `tests/test_smoke.py`
-
-同时将训练脚本改为无界面绘图后端，避免在服务器环境中因为 `plt.show()` 阻塞。
+- 仓库已移除未接入的重复模型模块，主实现集中在 `models/transformer.py`
+- 仓库已移除被 Git 跟踪的 `__pycache__/*.pyc` 缓存文件
+- `.gitignore` 会继续忽略本地缓存、虚拟环境和训练输出
+- GitHub Actions 会在 push 和 pull request 时运行测试，并执行一次最小训练流程

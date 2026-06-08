@@ -2,6 +2,7 @@ import importlib
 import sys
 from pathlib import Path
 
+import pytest
 import torch
 
 
@@ -49,3 +50,49 @@ def test_data_model_forward_and_generate(monkeypatch):
     generated = model.generate(context, max_new_tokens=5)
     assert generated.shape == (1, len("the ") + 5)
     assert isinstance(decode(generated[0].tolist()), str)
+
+
+def test_dataset_rejects_invalid_inputs(monkeypatch):
+    _, dataset, _ = reload_project_modules()
+    monkeypatch.chdir(ROOT)
+
+    _, _, encode, _, _ = dataset.load_data()
+
+    with pytest.raises(ValueError, match="unknown characters"):
+        encode("\0")
+
+    with pytest.raises(ValueError, match="split must be"):
+        dataset.get_batch("test")
+
+
+def test_causal_attention_does_not_use_future_tokens(monkeypatch):
+    _, dataset, transformer = reload_project_modules()
+    monkeypatch.chdir(ROOT)
+
+    _, _, _, _, vocab_size = dataset.load_data()
+    model = transformer.EncoderOnlyTransformer(vocab_size)
+    model.eval()
+
+    x = torch.randint(0, vocab_size, (1, 8))
+    x_with_different_future = x.clone()
+    x_with_different_future[0, -1] = (x_with_different_future[0, -1] + 1) % vocab_size
+
+    with torch.no_grad():
+        logits, _ = model(x)
+        changed_logits, _ = model(x_with_different_future)
+
+    torch.testing.assert_close(
+        logits[:, :-1, :], changed_logits[:, :-1, :], rtol=1e-5, atol=1e-6
+    )
+
+
+def test_generate_validates_sampling_args(monkeypatch):
+    _, dataset, transformer = reload_project_modules()
+    monkeypatch.chdir(ROOT)
+
+    _, _, encode, _, vocab_size = dataset.load_data()
+    model = transformer.EncoderOnlyTransformer(vocab_size)
+    context = torch.tensor([encode("the ")], dtype=torch.long)
+
+    with pytest.raises(ValueError, match="temperature"):
+        model.generate(context, max_new_tokens=1, temperature=0)
