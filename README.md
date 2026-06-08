@@ -6,7 +6,7 @@
 
 当前模型使用 encoder-style 的 Pre-Norm block、残差连接、前馈网络和多头自注意力，但为了完成 next-token prediction，注意力层使用 causal mask，保证当前位置只能看到当前位置及之前的 token。
 
-因此，这个项目更准确地说是一个 **causal character-level Transformer language model**。仓库名保留 `EncoderOnlyTransformer`，模型说明中明确标注了 causal 语言建模设定，避免和标准双向 Encoder-only 模型混淆。
+模型说明中明确标注了 causal 语言建模设定，避免和标准双向 Encoder-only 模型混淆。
 
 训练目标是最小化下一个字符预测的交叉熵损失，并使用 Perplexity 作为辅助评估指标。
 
@@ -137,7 +137,6 @@ pytest -q
 
 ## 维护说明
 
-- 仓库已移除未接入的重复模型模块，主实现集中在 `models/transformer.py`
-- 仓库已移除被 Git 跟踪的 `__pycache__/*.pyc` 缓存文件
+- 仓库已移除重复模型模块，主实现集中在 `models/transformer.py`
 - `.gitignore` 会继续忽略本地缓存、虚拟环境和训练输出
 - GitHub Actions 会在 push 和 pull request 时运行测试，并执行一次最小训练流程
