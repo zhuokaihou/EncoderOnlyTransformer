@@ -65,6 +65,30 @@ def test_dataset_rejects_invalid_inputs(monkeypatch):
         dataset.get_batch("test")
 
 
+def test_dataset_loads_corpus_directory(tmp_path):
+    config, dataset, _ = reload_project_modules()
+    config.block_size = 8
+
+    corpus_dir = tmp_path / "corpus"
+    corpus_dir.mkdir()
+    for i in range(4):
+        (corpus_dir / f"doc_{i}.txt").write_text(
+            f"the quick brown fox document {i} " * 8,
+            encoding="utf-8",
+        )
+
+    train_data, val_data, encode, decode, vocab_size = dataset.load_data(
+        data_path=corpus_dir
+    )
+    loaded = dataset.get_dataset(data_path=corpus_dir)
+
+    assert loaded.num_documents == 4
+    assert len(train_data) > config.block_size
+    assert len(val_data) > config.block_size
+    assert vocab_size == loaded.vocab_size
+    assert decode(encode("the ")) == "the "
+
+
 def test_causal_attention_does_not_use_future_tokens(monkeypatch):
     _, dataset, transformer = reload_project_modules()
     monkeypatch.chdir(ROOT)
