@@ -13,12 +13,14 @@
 ## 当前状态
 
 - 字符级数据读取、编码、解码和 batch 采样
+- 支持单文件 `data/input.txt` 和多文件目录 `data/corpus/*.txt`
+- 提供 `scripts/build_corpus.py` 清洗、去重并合并外部纯文本语料
 - Sinusoidal positional encoding
 - Causal masked multi-head self-attention
 - Feed-forward network、LayerNorm、残差连接和 Transformer block
 - 参数化训练脚本、生成脚本、模型保存和曲线保存
 - 完整 checkpoint：模型参数、优化器状态、模型配置、词表、训练历史
-- smoke test、采样参数校验、causal mask 行为测试
+- smoke test、采样参数校验、causal mask 行为测试和语料构建测试
 - GitHub Actions 自动测试和 1-step smoke training
 
 ## 项目结构
@@ -26,14 +28,20 @@
 ```text
 .
 ├── .github/workflows/tests.yml  # GitHub Actions 测试流程
+├── DATA.md                      # 数据集扩展说明
 ├── config.py                    # 环境变量默认配置
-├── data/input.txt               # 默认小型训练语料
+├── data/
+│   ├── corpus/                  # 可放置多份 raw .txt 语料
+│   └── input.txt                # 默认训练语料
 ├── generate.py                  # 文本生成入口
 ├── models/
 │   ├── __init__.py
 │   └── transformer.py           # Transformer 语言模型
 ├── pyproject.toml               # 项目和测试/格式配置
 ├── requirements.txt
+├── scripts/
+│   └── build_corpus.py          # 清洗并合并多文件语料
+├── tests/test_build_corpus.py
 ├── tests/test_smoke.py
 ├── train.py                     # 训练入口
 └── utils/
@@ -51,6 +59,52 @@ source .venv/bin/activate
 python3 -m pip install --upgrade pip
 python3 -m pip install -r requirements.txt
 ```
+
+## 扩大数据集
+
+项目现在支持两种数据组织方式。
+
+第一种是继续使用单个合并后的训练文件：
+
+```bash
+python3 train.py --data-path data/input.txt
+```
+
+第二种是把多份纯文本放在 `data/corpus/` 下直接训练：
+
+```text
+data/corpus/
+├── alice.txt
+├── shakespeare.txt
+└── stories.txt
+```
+
+```bash
+python3 train.py --data-path data/corpus
+```
+
+也可以先清洗并合并外部文本，再生成新的 `data/input.txt`：
+
+```bash
+python3 scripts/build_corpus.py data/corpus --output data/input.txt --min-chars 200
+```
+
+`build_corpus.py` 会做几件事：
+
+- 递归读取输入目录下的 `.txt` 文件
+- 去掉 Project Gutenberg 常见头尾声明
+- 统一换行和空白字符
+- 跳过太短的文档
+- 对完全重复的文档去重
+- 输出一个 UTF-8 纯文本训练文件
+
+推荐语料来源：
+
+- public-domain 纯文本书籍，例如 Project Gutenberg
+- TinyStories 这类适合小语言模型的短故事语料
+- 自己整理的课程文本或英文短篇文本
+
+不建议直接混入大量网页噪声或多语言文本。当前模型较小，干净、风格一致的语料通常比杂乱的大语料更有帮助。
 
 ## 训练模型
 
@@ -93,6 +147,15 @@ python3 train.py \
   --grad-clip 1.0
 ```
 
+目录语料训练示例：
+
+```bash
+python3 train.py \
+  --data-path data/corpus \
+  --batch-size 32 \
+  --block-size 64
+```
+
 ## 生成文本
 
 先训练得到 `outputs/model.pt`，然后运行：
@@ -128,12 +191,13 @@ pytest -q
 
 测试会检查：
 
-- 数据能正确加载并转换成字符级 token
+- 单文件和目录语料能正确加载并转换成字符级 token
 - batch 的形状符合配置
 - 模型 forward 能输出 logits 和 loss
 - generate 方法能生成指定长度的新 token
 - causal mask 不会让当前位置读取未来 token
 - 无效 split、未知字符和非法采样参数会报错
+- 语料构建脚本能清洗 Gutenberg 头尾、去重并合并文本
 
 ## 维护说明
 
