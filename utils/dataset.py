@@ -9,6 +9,7 @@ import config
 
 DATA_URL = "https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt"
 DATA_PATH = Path("data/input.txt")
+DEFAULT_CORPUS_DIR = Path("data/corpus")
 
 train_data = None
 val_data = None
@@ -25,10 +26,19 @@ class TextDataset:
     stoi: dict
     itos: dict
     data_path: Path
+    source_paths: tuple[Path, ...]
 
     @property
     def vocab_size(self):
         return len(self.stoi)
+
+    @property
+    def num_documents(self):
+        return len(self.source_paths)
+
+    @property
+    def num_tokens(self):
+        return len(self.train_data) + len(self.val_data)
 
     def encode(self, text):
         unknown = sorted(set(text) - set(self.stoi))
@@ -60,33 +70,87 @@ class TextDataset:
         return x.to(device), y.to(device)
 
 
+def _find_default_data_path(requested_path):
+    if requested_path.exists():
+        return requested_path
+    if requested_path == DATA_PATH and DEFAULT_CORPUS_DIR.exists():
+        return DEFAULT_CORPUS_DIR
+    return requested_path
+
+
+def _read_text_sources(data_path):
+    data_path = Path(data_path)
+    if data_path.is_file():
+        return [(data_path, data_path.read_text(encoding="utf-8"))]
+
+    if data_path.is_dir():
+        paths = tuple(sorted(path for path in data_path.rglob("*.txt") if path.is_file()))
+        if not paths:
+            raise FileNotFoundError(f"No .txt files found under corpus directory: {data_path}")
+        return [(path, path.read_text(encoding="utf-8")) for path in paths]
+
+    raise FileNotFoundError(f"{data_path} does not exist.")
+
+
+def _split_sources(sources):
+    if len(sources) == 1:
+        text = sources[0][1]
+        n = int(0.9 * len(text))
+        return text[:n], text[n:]
+
+    n_train = int(0.9 * len(sources))
+    n_train = min(max(1, n_train), len(sources) - 1)
+    train_text = "\n\n".join(text for _, text in sources[:n_train])
+    val_text = "\n\n".join(text for _, text in sources[n_train:])
+    return train_text, val_text
+
+
+def _validate_split_sizes(train_text, val_text):
+    min_chars = config.block_size + 1
+    if len(train_text) <= min_chars or len(val_text) <= min_chars:
+        raise ValueError(
+            "Train and validation splits must each contain more than "
+            f"{min_chars} characters. Add more corpus text or lower block_size."
+        )
+
+
+def _can_download_to_path(data_path):
+    return data_path.suffix.lower() == ".txt"
+
+
 def load_data(data_path=None, download_if_missing=False):
     global train_data, val_data, encode, decode, vocab_size, _dataset
 
-    data_path = Path(config.data_path if data_path is None else data_path)
-    if not data_path.exists():
-        if not download_if_missing:
+    requested_path = Path(config.data_path if data_path is None else data_path)
+    requested_path = _find_default_data_path(requested_path)
+    if not requested_path.exists():
+        if not download_if_missing or not _can_download_to_path(requested_path):
             raise FileNotFoundError(
-                f"{data_path} not found. Add a text corpus or call load_data(download_if_missing=True)."
+                f"{requested_path} not found. Add a text corpus or call "
+                "load_data(download_if_missing=True)."
             )
-        data_path.parent.mkdir(parents=True, exist_ok=True)
-        urlretrieve(DATA_URL, data_path)
+        requested_path.parent.mkdir(parents=True, exist_ok=True)
+        urlretrieve(DATA_URL, requested_path)
 
-    text = data_path.read_text(encoding="utf-8")
-    if len(text) <= config.block_size + 1:
-        raise ValueError(
-            f"Dataset must contain more than {config.block_size + 1} characters."
-        )
+    sources = _read_text_sources(requested_path)
+    train_text, val_text = _split_sources(sources)
+    _validate_split_sizes(train_text, val_text)
 
+    text = train_text + val_text
     chars = sorted(set(text))
     stoi = {ch: i for i, ch in enumerate(chars)}
     itos = {i: ch for i, ch in enumerate(chars)}
 
-    data = torch.tensor([stoi[c] for c in text], dtype=torch.long)
-    n = int(0.9 * len(data))
-    train_data = data[:n]
-    val_data = data[n:]
-    _dataset = TextDataset(train_data, val_data, stoi, itos, data_path)
+    train_data = torch.tensor([stoi[c] for c in train_text], dtype=torch.long)
+    val_data = torch.tensor([stoi[c] for c in val_text], dtype=torch.long)
+    _dataset = TextDataset(
+        train_data=train_data,
+        val_data=val_data,
+        stoi=stoi,
+        itos=itos,
+        data_path=requested_path,
+        source_paths=tuple(path for path, _ in sources),
+    )
 
     encode = _dataset.encode
     decode = _dataset.decode
@@ -97,8 +161,9 @@ def load_data(data_path=None, download_if_missing=False):
 
 def get_dataset(data_path=None, download_if_missing=False):
     requested_path = Path(config.data_path if data_path is None else data_path)
+    requested_path = _find_default_data_path(requested_path)
     if _dataset is None or _dataset.data_path != requested_path:
-        load_data(data_path=data_path, download_if_missing=download_if_missing)
+        load_data(data_path=requested_path, download_if_missing=download_if_missing)
     return _dataset
 
 
