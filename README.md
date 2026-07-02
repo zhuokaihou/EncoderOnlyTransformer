@@ -10,9 +10,14 @@
 
 训练目标是最小化下一个字符预测的交叉熵损失，并使用 Perplexity 作为辅助评估指标。
 
+**分词器功能更新（期末口头报告后）：**
+- 新增轻量级单词级分词器支持，可选择使用空格分词替代原有的字符级处理
+- 保持向后兼容，默认仍使用字符级分词，通过参数可切换到单词级分词模式
+
 ## 当前状态
 
 - 字符级数据读取、编码、解码和 batch 采样
+- **新增：轻量级单词级分词器（utils/tokenizer.py）**
 - 支持单文件 `data/input.txt` 和多文件目录 `data/corpus/*.txt`
 - 提供 `scripts/build_corpus.py` 清洗、去重并合并外部纯文本语料
 - Sinusoidal positional encoding
@@ -24,8 +29,8 @@
 - GitHub Actions 自动测试和 1-step smoke training
 
 ## 项目结构
-
-```text
+```
+text
 .
 ├── .github/workflows/tests.yml  # GitHub Actions 测试流程
 ├── DATA.md                      # 数据集扩展说明
@@ -46,7 +51,8 @@
 ├── train.py                     # 训练入口
 └── utils/
     ├── __init__.py
-    └── dataset.py               # 数据加载、编码、batch 采样
+    ├── dataset.py               # 数据加载、编码、batch 采样
+    └── tokenizer.py             # 轻量级单词分词器
 ```
 
 ## 环境安装
@@ -204,3 +210,4 @@ pytest -q
 - 仓库已移除重复模型模块，主实现集中在 `models/transformer.py`
 - `.gitignore` 会继续忽略本地缓存、虚拟环境和训练输出
 - GitHub Actions 会在 push 和 pull request 时运行测试，并执行一次最小训练流程
+- **新增分词器模块**：`utils/tokenizer.py` 提供轻量级单词分词功能，默认使用字符级分词以保持兼容性

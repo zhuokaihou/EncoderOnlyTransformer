@@ -5,6 +5,7 @@ from urllib.request import urlretrieve
 import torch
 
 import config
+from .tokenizer import WordTokenizer
 
 
 DATA_URL = "https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt"
@@ -27,6 +28,7 @@ class TextDataset:
     itos: dict
     data_path: Path
     source_paths: tuple[Path, ...]
+    tokenizer: WordTokenizer = None
 
     @property
     def vocab_size(self):
@@ -118,7 +120,15 @@ def _can_download_to_path(data_path):
     return data_path.suffix.lower() == ".txt"
 
 
-def load_data(data_path=None, download_if_missing=False):
+def _build_word_tokenizer(train_text: str, val_text: str) -> WordTokenizer:
+    """Build a word-level tokenizer from training and validation texts."""
+    tokenizer = WordTokenizer()
+    # Build vocabulary from both train and val texts
+    tokenizer.build_vocab([train_text, val_text])
+    return tokenizer
+
+
+def load_data(data_path=None, download_if_missing=False, use_word_tokenizer=False):
     global train_data, val_data, encode, decode, vocab_size, _dataset
 
     requested_path = Path(config.data_path if data_path is None else data_path)
@@ -136,21 +146,43 @@ def load_data(data_path=None, download_if_missing=False):
     train_text, val_text = _split_sources(sources)
     _validate_split_sizes(train_text, val_text)
 
-    text = train_text + val_text
-    chars = sorted(set(text))
-    stoi = {ch: i for i, ch in enumerate(chars)}
-    itos = {i: ch for i, ch in enumerate(chars)}
+    if use_word_tokenizer:
+        # Use word-level tokenizer
+        tokenizer = _build_word_tokenizer(train_text, val_text)
+        
+        # Encode texts using word tokenizer
+        train_tokens = tokenizer.encode(train_text)
+        val_tokens = tokenizer.encode(val_text)
+        
+        train_data = torch.tensor(train_tokens, dtype=torch.long)
+        val_data = torch.tensor(val_tokens, dtype=torch.long)
+        
+        _dataset = TextDataset(
+            train_data=train_data,
+            val_data=val_data,
+            stoi=tokenizer.vocab,
+            itos=tokenizer.inv_vocab,
+            data_path=requested_path,
+            source_paths=tuple(path for path, _ in sources),
+            tokenizer=tokenizer,
+        )
+    else:
+        # Use character-level tokenizer (original behavior)
+        text = train_text + val_text
+        chars = sorted(set(text))
+        stoi = {ch: i for i, ch in enumerate(chars)}
+        itos = {i: ch for i, ch in enumerate(chars)}
 
-    train_data = torch.tensor([stoi[c] for c in train_text], dtype=torch.long)
-    val_data = torch.tensor([stoi[c] for c in val_text], dtype=torch.long)
-    _dataset = TextDataset(
-        train_data=train_data,
-        val_data=val_data,
-        stoi=stoi,
-        itos=itos,
-        data_path=requested_path,
-        source_paths=tuple(path for path, _ in sources),
-    )
+        train_data = torch.tensor([stoi[c] for c in train_text], dtype=torch.long)
+        val_data = torch.tensor([stoi[c] for c in val_text], dtype=torch.long)
+        _dataset = TextDataset(
+            train_data=train_data,
+            val_data=val_data,
+            stoi=stoi,
+            itos=itos,
+            data_path=requested_path,
+            source_paths=tuple(path for path, _ in sources),
+        )
 
     encode = _dataset.encode
     decode = _dataset.decode
